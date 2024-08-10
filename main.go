@@ -4,9 +4,12 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"log"
 	"math"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -19,21 +22,34 @@ const fontHeight = 13
 
 var fontColor = color.RGBA{255, 207, 117, 255}
 var characters = [numberOfCharacters]rune{'.', ':', 'c', 'o', 'P', 'O', '@', '■'}
+var allowedOuputFormats = []string{".jpg", ".jpeg", ".png"}
 
 func main() {
-	img := readImage()
+	inputPath, outputPath := getArgs()
+	img := readImage(inputPath)
 	outImg := convertToAscii(img)
-	writeImage(outImg)
+	writeImage(outImg, outputPath)
 }
 
-func readImage() image.Image {
+func getArgs() (string, string) {
 	if len(os.Args) < 2 {
-		log.Fatalf("Usage: %s <image path>", os.Args[0])
+		log.Fatalf("Usage: %s <image input path> <image output path>", os.Args[0])
 	}
 
-	path := os.Args[1]
+	inputPath := os.Args[1]
 
-	file, err := os.Open(path)
+	var outputPath string
+	if len(os.Args) >= 3 {
+		outputPath = os.Args[2]
+	} else {
+		outputPath = "output.jpg"
+	}
+
+	return inputPath, outputPath
+}
+
+func readImage(inputPath string) image.Image {
+	file, err := os.Open(inputPath)
 	if err != nil {
 		log.Fatalf("failed to read image: %v", err)
 	}
@@ -47,19 +63,34 @@ func readImage() image.Image {
 	return img
 }
 
-func writeImage(img image.Image) {
-	outFile, err := os.Create("output.jpg")
+func writeImage(img image.Image, outputPath string) {
+	fileExtension := filepath.Ext(outputPath)
+	if !isAllowedOuputFormat(fileExtension) {
+		log.Fatalf("Format %s is not an allowed output format", fileExtension)
+		log.Fatalf("Allowed formats: %s", strings.Join(allowedOuputFormats, ", "))
+	}
+
+	outFile, err := os.Create(outputPath)
 	if err != nil {
 		log.Fatalf("Failed to create output file: %v", err)
 	}
 	defer outFile.Close()
 
-	err = jpeg.Encode(outFile, img, nil)
-	if err != nil {
-		log.Fatalf("Failed to encode image: %v", err)
+	switch fileExtension {
+	case ".jpg":
+	case ".jpeg":
+		if err = jpeg.Encode(outFile, img, nil); err != nil {
+			log.Fatalf("Failed to encode image: %v", err)
+		}
+	case ".png":
+		if err = png.Encode(outFile, img); err != nil {
+			log.Fatalf("Failed to encode image: %v", err)
+		}
+	default:
+		panic("Unknown output format")
 	}
 
-	log.Println("Image saved to output.jpg")
+	log.Println("Image saved to:", outputPath)
 }
 
 func convertToAscii(img image.Image) image.Image {
@@ -112,4 +143,13 @@ func getGrayscaleValueFromChunk(img image.Image, rowChunk, colChunk int) uint8 {
 func getCharFromGrayscaleValue(val uint8) rune {
 	bucket := int(math.Floor((float64(val) / 256) * numberOfCharacters))
 	return characters[bucket]
+}
+
+func isAllowedOuputFormat(format string) bool {
+	for _, allowedFormat := range allowedOuputFormats {
+		if format == allowedFormat {
+			return true
+		}
+	}
+	return false
 }
