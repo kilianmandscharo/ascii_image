@@ -2,9 +2,7 @@ package main
 
 import (
 	"cmp"
-	"errors"
 	"flag"
-	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -13,7 +11,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"golang.org/x/image/font"
@@ -75,46 +72,7 @@ func getArgs() *options {
 	}
 }
 
-func parseRgbaColorString(colorString string) (color.Color, error) {
-	color := color.RGBA{}
-	values := strings.Split(strings.Trim(colorString, "()"), ",")
 
-	if len(values) < 3 {
-		return color, errors.New("not enough color values")
-	}
-
-	r, err := strconv.Atoi(strings.TrimSpace(values[0]))
-	if err != nil {
-		return color, fmt.Errorf("invalid value '%s' for red: %v", values[0], err)
-	}
-
-	g, err := strconv.Atoi(strings.TrimSpace(values[1]))
-	if err != nil {
-		return color, fmt.Errorf("invalid value '%s' for green: %v", values[1], err)
-	}
-
-	b, err := strconv.Atoi(strings.TrimSpace(values[2]))
-	if err != nil {
-		return color, fmt.Errorf("invalid value '%s' for blue: %v", values[2], err)
-	}
-
-	var a int
-	if len(values) > 3 {
-		a, err = strconv.Atoi(strings.TrimSpace(values[3]))
-		if err != nil {
-			return color, fmt.Errorf("invalid value '%s' for alpha: %v", values[3], err)
-		}
-	} else {
-		a = 255
-	}
-
-	color.R = uint8(r)
-	color.G = uint8(g)
-	color.B = uint8(b)
-	color.A = uint8(a)
-
-	return color, nil
-}
 
 func readImage(inputPath string) image.Image {
 	file, err := os.Open(inputPath)
