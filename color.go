@@ -1,9 +1,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"image/color"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -11,6 +11,7 @@ import (
 type colorParserError struct {
 	input    string
 	position int
+	length   int
 	message  string
 }
 
@@ -19,11 +20,10 @@ func (e colorParserError) Error() string {
 		pointerLen := len(e.input) + 15
 		pointerBytes := make([]byte, pointerLen, pointerLen)
 		for i := range len(e.input) + 15 {
-			if i != e.position+15 {
-				pointerBytes[i] = ' '
-			} else {
-				pointerBytes[i] = '^'
-			}
+			pointerBytes[i] = ' '
+		}
+		for i := range e.length {
+			pointerBytes[e.position+i+15] = '^'
 		}
 		return fmt.Sprintf("invalid input '%s': %s\n%s", e.input, e.message, pointerBytes)
 	}
@@ -35,11 +35,17 @@ func (e colorParserError) Error() string {
 	return fmt.Sprintf("%s", e.message)
 }
 
+func parseColorString(colorString string) (c color.RGBA, err error) {
+	panic("not implemented")
+	return c, err
+}
+
 func parseHexColorString(colorString string) (c color.RGBA, err error) {
 	if len(colorString) == 0 {
 		return c, colorParserError{
 			input:    colorString,
 			position: -1,
+			length:   0,
 			message:  "empty color string",
 		}
 	}
@@ -48,84 +54,107 @@ func parseHexColorString(colorString string) (c color.RGBA, err error) {
 		return c, colorParserError{
 			input:    colorString,
 			position: 0,
+			length:   1,
 			message:  "hex color string has to start with '#'",
 		}
 	}
 
-	hexToDecimal := func(b byte) byte {
+	hexByteToDecimalByte := func(b byte) (byte, error) {
 		switch {
 		case b >= '0' && b <= '9':
-			return b - '0'
+			return b - '0', nil
 		case b >= 'a' && b <= 'f':
-			return b - 'a' + 10
+			return b - 'a' + 10, nil
 		case b >= 'A' && b <= 'F':
-			return b - 'A' + 10
+			return b - 'A' + 10, nil
 		default:
-			return 0
+			return 0, fmt.Errorf("invalid byte '%s' in hex string", string(b))
+		}
+	}
+
+	newByteParsingError := func(position int, err error) error {
+		return colorParserError{
+			input:    colorString,
+			position: position,
+			length:   1,
+			message:  err.Error(),
 		}
 	}
 
 	switch len(colorString) {
 	case 7:
-		c.R = hexToDecimal(colorString[1])<<4 + hexToDecimal(colorString[2])
-		c.G = hexToDecimal(colorString[3])<<4 + hexToDecimal(colorString[4])
-		c.B = hexToDecimal(colorString[5])<<4 + hexToDecimal(colorString[6])
+		for i, color := range []*uint8{&c.R, &c.G, &c.B} {
+			firstByte, err := hexByteToDecimalByte(colorString[2*i+1])
+			if err != nil {
+				return c, newByteParsingError(2*i+1, err)
+			}
+			secondByte, err := hexByteToDecimalByte(colorString[2*i+2])
+			if err != nil {
+				return c, newByteParsingError(2*i+2, err)
+			}
+			*color = firstByte<<4 + secondByte
+		}
 		c.A = 255
 	case 4:
-		c.R = hexToDecimal(colorString[1]) * 17
-		c.G = hexToDecimal(colorString[2]) * 17
-		c.B = hexToDecimal(colorString[3]) * 17
+		for i, color := range []*uint8{&c.R, &c.G, &c.B} {
+			firstByte, err := hexByteToDecimalByte(colorString[i+1])
+			if err != nil {
+				return c, newByteParsingError(i+1, err)
+			}
+			*color = firstByte * 17
+		}
 		c.A = 255
 	default:
 		return c, colorParserError{
 			input:    colorString,
-			position: -1,
-			message:  "hex color string length has to be 3 or 6",
+			position: 0,
+			length:   len(colorString),
+			message:  fmt.Sprintf("invalid length %d of hex string, has to be 4 or 7", len(colorString)),
 		}
 	}
 
+	c.A = 255
 	return c, nil
 }
 
-// func parseRgbColorString()
+var rgbRegex = regexp.MustCompile("^rgb\\((.+)\\)$")
 
-func parseRgbaColorString(colorString string) (color.Color, error) {
-	color := color.RGBA{}
-	values := strings.Split(strings.Trim(colorString, "()"), ",")
-
-	if len(values) < 3 {
-		return color, errors.New("not enough color values")
-	}
-
-	r, err := strconv.Atoi(strings.TrimSpace(values[0]))
-	if err != nil {
-		return color, fmt.Errorf("invalid value '%s' for red: %v", values[0], err)
-	}
-
-	g, err := strconv.Atoi(strings.TrimSpace(values[1]))
-	if err != nil {
-		return color, fmt.Errorf("invalid value '%s' for green: %v", values[1], err)
-	}
-
-	b, err := strconv.Atoi(strings.TrimSpace(values[2]))
-	if err != nil {
-		return color, fmt.Errorf("invalid value '%s' for blue: %v", values[2], err)
-	}
-
-	var a int
-	if len(values) > 3 {
-		a, err = strconv.Atoi(strings.TrimSpace(values[3]))
-		if err != nil {
-			return color, fmt.Errorf("invalid value '%s' for alpha: %v", values[3], err)
+func parseRgbColorString(colorString string) (c color.RGBA, err error) {
+	matches := rgbRegex.FindStringSubmatch(colorString)
+	if len(matches) <= 1 {
+		return c, colorParserError{
+			input:    colorString,
+			position: 0,
+			length:   len(colorString),
+			message:  "invalid rgb color string",
 		}
-	} else {
-		a = 255
 	}
 
-	color.R = uint8(r)
-	color.G = uint8(g)
-	color.B = uint8(b)
-	color.A = uint8(a)
+	values := strings.Split(matches[1], ",")
+	if len(values) != 3 {
+		return c, colorParserError{
+			input:    colorString,
+			position: 4,
+			length:   len(matches[1]),
+			message:  fmt.Sprintf("invalid number of values: found %d, want 3", len(values)),
+		}
+	}
 
-	return color, nil
+	for i, color := range []*uint8{&c.R, &c.G, &c.B} {
+		val, err := strconv.Atoi(strings.TrimSpace(values[i]))
+		if err != nil || val > 255 {
+			position := strings.Index(colorString, values[i])
+			return c, colorParserError{
+				input:    colorString,
+				position: position,
+				length:   len(values[i]),
+				message:  fmt.Sprintf("invalid color value '%s', want 0-255", values[i]),
+			}
+		}
+		*color = uint8(val)
+	}
+
+	c.A = 255
+
+	return c, err
 }
