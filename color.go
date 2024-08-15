@@ -35,9 +35,20 @@ func (e colorParserError) Error() string {
 	return fmt.Sprintf("%s", e.message)
 }
 
+var (
+	rgbRegex = regexp.MustCompile("^rgb\\((.+)\\)$")
+	hexRegex = regexp.MustCompile("^#.*")
+)
+
 func parseColorString(colorString string) (c color.RGBA, err error) {
-	panic("not implemented")
-	return c, err
+	switch {
+	case rgbRegex.Match([]byte(colorString)):
+		return parseRgbColorString(colorString)
+	case hexRegex.Match([]byte(colorString)):
+		return parseHexColorString(colorString)
+	default:
+		return c, fmt.Errorf("invalid color string '%s'", colorString)
+	}
 }
 
 func parseHexColorString(colorString string) (c color.RGBA, err error) {
@@ -88,10 +99,12 @@ func parseHexColorString(colorString string) (c color.RGBA, err error) {
 			if err != nil {
 				return c, newByteParsingError(2*i+1, err)
 			}
+
 			secondByte, err := hexByteToDecimalByte(colorString[2*i+2])
 			if err != nil {
 				return c, newByteParsingError(2*i+2, err)
 			}
+
 			*color = firstByte<<4 + secondByte
 		}
 		c.A = 255
@@ -101,6 +114,7 @@ func parseHexColorString(colorString string) (c color.RGBA, err error) {
 			if err != nil {
 				return c, newByteParsingError(i+1, err)
 			}
+
 			*color = firstByte * 17
 		}
 		c.A = 255
@@ -116,8 +130,6 @@ func parseHexColorString(colorString string) (c color.RGBA, err error) {
 	c.A = 255
 	return c, nil
 }
-
-var rgbRegex = regexp.MustCompile("^rgb\\((.+)\\)$")
 
 func parseRgbColorString(colorString string) (c color.RGBA, err error) {
 	matches := rgbRegex.FindStringSubmatch(colorString)
@@ -143,10 +155,9 @@ func parseRgbColorString(colorString string) (c color.RGBA, err error) {
 	for i, color := range []*uint8{&c.R, &c.G, &c.B} {
 		val, err := strconv.Atoi(strings.TrimSpace(values[i]))
 		if err != nil || val > 255 {
-			position := strings.Index(colorString, values[i])
 			return c, colorParserError{
 				input:    colorString,
-				position: position,
+				position: strings.Index(colorString, values[i]),
 				length:   len(values[i]),
 				message:  fmt.Sprintf("invalid color value '%s', want 0-255", values[i]),
 			}

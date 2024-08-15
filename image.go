@@ -2,7 +2,7 @@ package main
 
 import (
 	"image"
-	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"image/png"
 	"log"
@@ -56,8 +56,7 @@ func writeImage(img image.Image, outputPath string) {
 	defer outFile.Close()
 
 	switch fileExtension {
-	case ".jpg":
-	case ".jpeg":
+	case ".jpg", ".jpeg":
 		if err = jpeg.Encode(outFile, img, nil); err != nil {
 			log.Fatalf("Failed to encode image: %v", err)
 		}
@@ -72,15 +71,16 @@ func writeImage(img image.Image, outputPath string) {
 	log.Println("Image saved to:", outputPath)
 }
 
-func convertToAscii(img image.Image, color color.Color) image.Image {
+func convertToAscii(img image.Image, options *options) image.Image {
 	numberOfRowChunks := int(math.Ceil(float64(img.Bounds().Max.Y) / float64(chunkSize)))
 	numberOfColChunks := int(math.Ceil(float64(img.Bounds().Max.X) / float64(chunkSize)))
 
 	outImg := image.NewRGBA(img.Bounds())
+	draw.Draw(outImg, outImg.Bounds(), &image.Uniform{options.bg}, image.Point{}, draw.Src)
 
 	d := &font.Drawer{
 		Dst:  outImg,
-		Src:  image.NewUniform(color),
+		Src:  image.NewUniform(options.fg),
 		Face: basicfont.Face7x13,
 	}
 

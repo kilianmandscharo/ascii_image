@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	defaultBgColor = "rgb(0, 0, 0)"
-	defaultFgColor = "rgb(255, 207, 117)"
+	defaultBgColor = "#000000"
+	defaultFgColor = "#FFCF75"
 )
 
 type options struct {
@@ -24,8 +24,8 @@ type options struct {
 func getArgs() *options {
 	var inputPathArg = flag.String("f", "", "the image input path")
 	var outputPathArg = flag.String("o", "", "the image output path")
-	var fgArg = flag.String("fg", defaultFgColor, "the ascii font color in HEX / RGB format")
-	var bgArg = flag.String("bg", defaultBgColor, "the ascii font color in HEX / RGB format")
+	var fgArg = flag.String("fg", defaultFgColor, "foreground color in HEX / RGB format")
+	var bgArg = flag.String("bg", defaultBgColor, "background color in HEX / RGB format")
 
 	flag.Parse()
 
