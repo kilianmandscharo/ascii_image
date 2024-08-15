@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"image/jpeg"
 	"image/png"
@@ -11,19 +12,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
+	"github.com/golang/freetype"
 )
 
 const (
 	chunkSize          = 10
-	numberOfCharacters = 9
+	numberOfCharacters = 8
 	fontHeight         = 13
 )
 
 var (
-	characters          = [numberOfCharacters]rune{'.', ':', 'c', 'o', 'P', 'O', '@', '■'}
+	characters          = [numberOfCharacters]byte{'.', ':', 'c', 'o', 'P', 'O', '@', '$'}
 	allowedOuputFormats = []string{".jpg", ".jpeg", ".png"}
 )
 
@@ -71,30 +70,37 @@ func writeImage(img image.Image, outputPath string) {
 	log.Println("Image saved to:", outputPath)
 }
 
-func convertToAscii(img image.Image, options *options) image.Image {
-	numberOfRowChunks := int(math.Ceil(float64(img.Bounds().Max.Y) / float64(chunkSize)))
-	numberOfColChunks := int(math.Ceil(float64(img.Bounds().Max.X) / float64(chunkSize)))
+func convertToAscii(img image.Image, options *options, c *freetype.Context) image.Image {
+	numberOfRowChunks, numberOfColChunks := getNumberOfChunksFromImage(img)
 
 	outImg := image.NewRGBA(img.Bounds())
-	draw.Draw(outImg, outImg.Bounds(), &image.Uniform{options.bg}, image.Point{}, draw.Src)
+	fillImageBgColor(outImg, options.bg)
 
-	d := &font.Drawer{
-		Dst:  outImg,
-		Src:  image.NewUniform(options.fg),
-		Face: basicfont.Face7x13,
-	}
+	c.SetClip(outImg.Bounds())
+	c.SetDst(outImg)
+	c.SetSrc(image.NewUniform(options.fg))
 
 	for rowChunk := 0; rowChunk < numberOfRowChunks; rowChunk++ {
 		for colChunk := 0; colChunk < numberOfColChunks; colChunk++ {
 			val := getGrayscaleValueFromChunk(img, rowChunk, colChunk)
 			char := getCharFromGrayscaleValue(val)
 
-			d.Dot = fixed.P(colChunk*chunkSize, rowChunk*chunkSize+fontHeight)
-			d.DrawString(string(char))
+			pt := freetype.Pt(colChunk*chunkSize, rowChunk*chunkSize+fontHeight)
+			c.DrawString(string(char), pt)
 		}
 	}
 
 	return outImg
+}
+
+func fillImageBgColor(img *image.RGBA, bg color.Color) {
+	draw.Draw(img, img.Bounds(), &image.Uniform{bg}, image.Point{}, draw.Src)
+}
+
+func getNumberOfChunksFromImage(img image.Image) (int, int) {
+	numberOfRowChunks := int(math.Ceil(float64(img.Bounds().Max.Y) / float64(chunkSize)))
+	numberOfColChunks := int(math.Ceil(float64(img.Bounds().Max.X) / float64(chunkSize)))
+	return numberOfRowChunks, numberOfColChunks
 }
 
 func getGrayscaleValueFromChunk(img image.Image, rowChunk, colChunk int) uint8 {
@@ -119,7 +125,7 @@ func getGrayscaleValueFromChunk(img image.Image, rowChunk, colChunk int) uint8 {
 	return uint8(total / 256 / float64(count))
 }
 
-func getCharFromGrayscaleValue(val uint8) rune {
+func getCharFromGrayscaleValue(val uint8) byte {
 	bucket := int(math.Floor((float64(val) / 256) * numberOfCharacters))
 	return characters[bucket]
 }

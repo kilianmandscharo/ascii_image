@@ -3,8 +3,9 @@ module github.com/kilianmandscharo/ta
 go 1.22.5
 
 require (
-	golang.org/x/image v0.19.0 // direct
 	github.com/stretchr/testify v1.9.0 // direct
+	golang.org/x/image v0.19.0 // direct
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // direct
 )
 
 require (
