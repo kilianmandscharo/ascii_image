@@ -4,7 +4,9 @@ func main() {
 	options := getArgs()
 	fontContext := loadFont()
 
-	img := readImage(options.inputPath)
-	outImg := convertToAscii(img, options, fontContext)
-	writeImage(outImg, options.outputPath)
+	if options.inputIsDir {
+		processDirectory(options, fontContext)
+	} else {
+		processImagesConcurrently(options, fontContext, options.inputPath)
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -26,48 +28,127 @@ var (
 	allowedOuputFormats = []string{".jpg", ".jpeg", ".png"}
 )
 
-func readImage(inputPath string) image.Image {
+type processingMessage struct {
+	inputPath  string
+	outputPath string
+	err        error
+}
+
+func processDirectory(options *options, fontContext *freetype.Context) error {
+	entries, err := os.ReadDir(options.inputPath)
+	if err != nil {
+		return fmt.Errorf("failed to read input directory '%s': %v", options.inputPath, err)
+	}
+
+	var imagePaths []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			imagePaths = append(imagePaths, path.Join(options.inputPath, entry.Name()))
+		}
+	}
+
+	processImagesConcurrently(options, fontContext, imagePaths...)
+
+	return nil
+}
+
+func processImagesConcurrently(options *options, fontContext *freetype.Context, imagePaths ...string) {
+	outChan := make(chan processingMessage)
+
+	for _, imagePath := range imagePaths {
+		go processImageInGoroutine(
+			outChan,
+			imagePath,
+			options,
+			fontContext,
+		)
+	}
+
+	for range imagePaths {
+		result := <-outChan
+		if result.err != nil {
+			log.Printf("failed to process image '%s': %v", result.inputPath, result.err)
+		} else {
+			log.Printf("processed '%s' -> wrote new image to '%s'", result.inputPath, result.outputPath)
+		}
+	}
+
+}
+
+func processImageInGoroutine(outChan chan<- processingMessage, imagePath string, options *options, fontContext *freetype.Context) {
+	outputPath, err := processImage(imagePath, options, fontContext)
+
+	outChan <- processingMessage{
+		inputPath:  imagePath,
+		outputPath: outputPath,
+		err:        err,
+	}
+}
+
+func processImage(imagePath string, options *options, fontContext *freetype.Context) (string, error) {
+	img, err := readImage(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to process image '%s': %v", options.inputPath, err)
+	}
+
+	outImg := convertToAscii(img, options, fontContext)
+
+	var outputPath string
+	if !options.inputIsDir {
+		outputPath = options.outputPath
+	} else {
+		fileNameElements := strings.Split(path.Base(imagePath), ".")
+		outputPath = path.Join(options.outputPath, fileNameElements[0]+"_ascii."+fileNameElements[1])
+	}
+
+	err = writeImage(outImg, outputPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to process image '%s': %v", options.inputPath, err)
+	}
+
+	return outputPath, nil
+}
+
+func readImage(inputPath string) (img image.Image, err error) {
 	file, err := os.Open(inputPath)
 	if err != nil {
-		log.Fatalf("failed to read image: %v", err)
+		return img, fmt.Errorf("failed to read image: %v", err)
 	}
 	defer file.Close()
 
-	img, _, err := image.Decode(file)
+	img, _, err = image.Decode(file)
 	if err != nil {
-		log.Fatalf("failed to decode image: %v", err)
+		return img, fmt.Errorf("failed to decode image: %v", err)
 	}
 
-	return img
+	return img, nil
 }
 
-func writeImage(img image.Image, outputPath string) {
-	fileExtension := filepath.Ext(outputPath)
-	if !isAllowedOuputFormat(fileExtension) {
-		log.Fatalf("Format %s is not an allowed output format", fileExtension)
-		log.Fatalf("Allowed formats: %s", strings.Join(allowedOuputFormats, ", "))
-	}
-
+func writeImage(img image.Image, outputPath string) error {
 	outFile, err := os.Create(outputPath)
 	if err != nil {
-		log.Fatalf("Failed to create output file: %v", err)
+		return fmt.Errorf("failed to create output file: %v", err)
 	}
 	defer outFile.Close()
 
-	switch fileExtension {
+	newEncodingError := func(err error) error {
+		return fmt.Errorf("failed to encode image: %v", err)
+	}
+
+	switch filepath.Ext(outputPath) {
 	case ".jpg", ".jpeg":
 		if err = jpeg.Encode(outFile, img, nil); err != nil {
-			log.Fatalf("Failed to encode image: %v", err)
+			return newEncodingError(err)
 		}
 	case ".png":
 		if err = png.Encode(outFile, img); err != nil {
-			log.Fatalf("Failed to encode image: %v", err)
+			return newEncodingError(err)
 		}
 	default:
 		panic("Unknown output format")
 	}
 
-	log.Println("Image saved to:", outputPath)
+	return nil
 }
 
 func convertToAscii(img image.Image, options *options, c *freetype.Context) image.Image {
