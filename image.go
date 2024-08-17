@@ -7,7 +7,6 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"image/png"
-	"log"
 	"math"
 	"os"
 	"path"
@@ -20,13 +19,10 @@ import (
 const (
 	chunkSize          = 10
 	numberOfCharacters = 8
-	fontHeight         = 13
+	numberOfWorkers    = 5
 )
 
-var (
-	characters          = [numberOfCharacters]byte{'.', ':', 'c', 'o', 'P', 'O', '@', '$'}
-	allowedOuputFormats = []string{".jpg", ".jpeg", ".png"}
-)
+var characters = [numberOfCharacters]byte{'.', ':', 'c', 'o', 'P', 'O', '@', '$'}
 
 type processingMessage struct {
 	inputPath  string
@@ -34,76 +30,79 @@ type processingMessage struct {
 	err        error
 }
 
+func startWorkers(taskChan <-chan string, outChan chan<- processingMessage, options *options, fontContext *freetype.Context) {
+	for range numberOfWorkers {
+		go func() {
+			for imagePath := range taskChan {
+				outputPath, err := processImage(imagePath, options, fontContext)
+
+				outChan <- processingMessage{
+					inputPath:  imagePath,
+					outputPath: outputPath,
+					err:        err,
+				}
+			}
+		}()
+	}
+}
+
 func processDirectory(options *options, fontContext *freetype.Context) error {
-	entries, err := os.ReadDir(options.inputPath)
+	entries, err := os.ReadDir(options.inputDirPath)
 	if err != nil {
-		return fmt.Errorf("failed to read input directory '%s': %v", options.inputPath, err)
+		return fmt.Errorf("failed to read input directory '%s': %v", options.inputDirPath, err)
 	}
 
 	var imagePaths []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			imagePaths = append(imagePaths, path.Join(options.inputPath, entry.Name()))
+			imagePaths = append(imagePaths, path.Join(options.inputDirPath, entry.Name()))
 		}
 	}
 
-	processImagesConcurrently(options, fontContext, imagePaths...)
-
-	return nil
-}
-
-func processImagesConcurrently(options *options, fontContext *freetype.Context, imagePaths ...string) {
+	taskChan := make(chan string)
 	outChan := make(chan processingMessage)
 
-	for _, imagePath := range imagePaths {
-		go processImageInGoroutine(
-			outChan,
-			imagePath,
-			options,
-			fontContext,
-		)
-	}
+	startWorkers(taskChan, outChan, options, fontContext)
+
+	go func() {
+		for _, imagePath := range imagePaths {
+			taskChan <- imagePath
+		}
+		close(taskChan)
+	}()
 
 	for range imagePaths {
 		result := <-outChan
+
 		if result.err != nil {
-			log.Printf("failed to process image '%s': %v", result.inputPath, result.err)
+			fmt.Printf("failed to process image '%s': %v\n", result.inputPath, result.err)
 		} else {
-			log.Printf("processed '%s' -> wrote new image to '%s'", result.inputPath, result.outputPath)
+			fmt.Printf("processed '%s' -> wrote new image to '%s'\n", result.inputPath, result.outputPath)
 		}
 	}
 
-}
-
-func processImageInGoroutine(outChan chan<- processingMessage, imagePath string, options *options, fontContext *freetype.Context) {
-	outputPath, err := processImage(imagePath, options, fontContext)
-
-	outChan <- processingMessage{
-		inputPath:  imagePath,
-		outputPath: outputPath,
-		err:        err,
-	}
+	return nil
 }
 
 func processImage(imagePath string, options *options, fontContext *freetype.Context) (string, error) {
 	img, err := readImage(imagePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to process image '%s': %v", options.inputPath, err)
+		return "", fmt.Errorf("failed to process image '%s': %v", options.inputFilePath, err)
 	}
 
 	outImg := convertToAscii(img, options, fontContext)
 
 	var outputPath string
-	if !options.inputIsDir {
-		outputPath = options.outputPath
+	if !options.isProcessDir() {
+		outputPath = options.outputFilePath
 	} else {
 		fileNameElements := strings.Split(path.Base(imagePath), ".")
-		outputPath = path.Join(options.outputPath, fileNameElements[0]+"_ascii."+fileNameElements[1])
+		outputPath = path.Join(options.outputDirPath, fileNameElements[0]+"_ascii."+fileNameElements[1])
 	}
 
 	err = writeImage(outImg, outputPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to process image '%s': %v", options.inputPath, err)
+		return "", fmt.Errorf("failed to process image '%s': %v", options.inputFilePath, err)
 	}
 
 	return outputPath, nil
@@ -166,7 +165,7 @@ func convertToAscii(img image.Image, options *options, c *freetype.Context) imag
 			val := getGrayscaleValueFromChunk(img, rowChunk, colChunk)
 			char := getCharFromGrayscaleValue(val)
 
-			pt := freetype.Pt(colChunk*chunkSize, rowChunk*chunkSize+fontHeight)
+			pt := freetype.Pt(colChunk*chunkSize, rowChunk*chunkSize)
 			c.DrawString(string(char), pt)
 		}
 	}
@@ -209,13 +208,4 @@ func getGrayscaleValueFromChunk(img image.Image, rowChunk, colChunk int) uint8 {
 func getCharFromGrayscaleValue(val uint8) byte {
 	bucket := int(math.Floor((float64(val) / 256) * numberOfCharacters))
 	return characters[bucket]
-}
-
-func isAllowedOuputFormat(format string) bool {
-	for _, allowedFormat := range allowedOuputFormats {
-		if format == allowedFormat {
-			return true
-		}
-	}
-	return false
 }
